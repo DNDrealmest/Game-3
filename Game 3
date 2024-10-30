@@ -1,0 +1,218 @@
+import pygame
+import random
+
+# Initialize Pygame
+pygame.init()
+screen = pygame.display.set_mode((600, 400))
+pygame.display.set_caption("DDR Game")
+
+# Colors and settings
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+NOTE_COLOR = (255, 0, 0)
+reference_y = 300
+initial_note_speed = 1
+note_speed = initial_note_speed
+hit_count = 0
+miss_count = 0
+game_over = False
+
+# Game state variables
+game_running = False
+menu_active = True
+selected_game = 1
+game_mode = 1  # 1 for random, 2 for set pattern
+
+# Reference points mapped by numbers 1-4
+reference_points = {1: 100, 2: 200, 3: 300, 4: 400}
+note_positions = []
+
+# Font for messages
+font = pygame.font.Font(None, 36)
+
+
+# Load pattern and timing files for the second DDR game mode
+def load_pattern_files():
+    with open('note_pattern.txt', 'r') as f:
+        note_pattern = [int(line.strip()) for line in f]
+    with open('note_timing.txt', 'r') as f:
+        note_timing = [float(line.strip()) for line in f]
+    return note_pattern, note_timing
+# Function to load patterns and timings
+def load_patterns():
+    global note_pattern, note_timing, speed_timing
+    try:
+        with open("note_pattern.txt", "r") as file:
+            note_pattern = [int(line.strip()) for line in file]
+        with open("note_timing.txt", "r") as file:
+            note_timing = [float(line.strip()) for line in file]
+        with open("speed_timing.txt", "r") as file:
+            speed_timing = [(float(line.split(',')[0]), float(line.split(',')[1])) for line in file]
+    except FileNotFoundError:
+        print("One of the pattern/timing files is missing.")
+
+
+# Pattern-based game variables
+note_pattern, note_timing = [], []
+note_index = 0
+start_time = pygame.time.get_ticks() / 1000  # Convert milliseconds to seconds
+
+
+# Function to reset the pattern game
+def reset_pattern_game():
+    global note_positions, note_index, start_time, miss_count, game_over
+    note_positions = []
+    note_index = 0
+    start_time = pygame.time.get_ticks() / 1000
+    miss_count = 0
+    game_over = False
+
+# Function to reset the random notes game
+def reset_random_game():
+    global note_speed, hit_count, miss_count, game_over
+    note_positions.clear()
+    note_speed = initial_note_speed  # Reset note speed
+    hit_count = 0
+    miss_count = 0
+    game_over = False
+    spawn_random_note()  # Spawn the first note immediately
+
+
+# Function to spawn a random note in the random notes mode
+def spawn_random_note():
+    x_position = random.choice(list(reference_points.values()))
+    note_positions.append([x_position, 0])
+
+
+# Function to draw the main menu
+def draw_menu():
+    screen.fill(BLACK)
+    title_text = font.render("Choose a Game to Play", True, WHITE)
+    screen.blit(title_text, (screen.get_width() // 2 - title_text.get_width() // 2, 50))
+
+    # Game options
+    games = [
+        "1. DDR Game (Random Notes)",
+        "2. DDR Game (Set Pattern)",
+        "3. Placeholder Game 3",
+        "4. Placeholder Game 4",
+        "5. Placeholder Game 5",
+    ]
+
+    for i, game in enumerate(games, start=1):
+        color = WHITE if selected_game == i else (150, 150, 150)
+        game_text = font.render(game, True, color)
+        screen.blit(game_text, (screen.get_width() // 2 - game_text.get_width() // 2, 100 + i * 40))
+
+    pygame.display.flip()
+
+
+# Game loop
+running = True
+clock = pygame.time.Clock()
+while running:
+    if menu_active:
+        draw_menu()
+        # Check for menu events
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_DOWN:
+                    selected_game = min(selected_game + 1, 5)
+                elif event.key == pygame.K_UP:
+                    selected_game = max(selected_game - 1, 1)
+                elif event.key == pygame.K_RETURN:
+                    if selected_game == 1:
+                        menu_active = False
+                        game_running = True
+                        game_mode = 1  # Random notes mode
+                        reset_random_game()
+                    elif selected_game == 2:
+                        menu_active = False
+                        game_running = True
+                        game_mode = 2  # Pattern-based notes mode
+                        note_pattern, note_timing = load_pattern_files()
+                        reset_pattern_game()
+                    else:
+                        print(f"Game {selected_game} is not implemented yet!")  # Placeholder message
+    elif game_running:
+        screen.fill(BLACK)
+
+        # Check for game events
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                key_to_ref = {pygame.K_LEFT: 1, pygame.K_DOWN: 2, pygame.K_UP: 3, pygame.K_RIGHT: 4}
+                if event.key == pygame.K_r and game_over:
+                # Restart the game based on the current game mode
+                    reset_random_game() if game_mode == 1 else reset_pattern_game()
+                elif event.key == pygame.K_m and game_over:
+                # Go back to the menu and reset the game state
+                    menu_active = True
+                    game_running = False
+                    reset_random_game() if game_mode == 1 else reset_pattern_game()
+                elif event.key == pygame.K_x and game_over:
+                    running = False
+                elif event.key in key_to_ref and not game_over:
+                    note_direction = key_to_ref[event.key]
+                    hit = False
+                    for pos in note_positions:
+                        if pos[0] == reference_points[note_direction]:
+                            time_diff = abs(pos[1] - reference_y) / (note_speed * 10)
+                            if time_diff <= 0.5:
+                                hit_count += 1
+                                note_positions.remove(pos)
+                                hit = True
+
+                                # Increase difficulty every 3 hits in Random Notes game mode
+                                if game_mode == 1 and hit_count % 3 == 0:
+                                    note_speed += 1  # Increase speed for added difficulty
+                                spawn_random_note()  # Spawn new note immediately after a hit
+                                break
+
+        # Game over check
+        if miss_count >= 5:
+            game_over = True
+
+        # Spawn notes based on game mode
+        current_time = (pygame.time.get_ticks() / 1000) - start_time
+        if game_mode == 2:  # Pattern-based notes mode
+            if note_index < len(note_timing) and current_time >= note_timing[note_index]:
+                note_number = note_pattern[note_index]
+                if note_number in reference_points:
+                    note_positions.append([reference_points[note_number], 0])
+                note_index += 1
+
+        # Update and draw notes
+        for pos in note_positions[:]:  # Copy for safe removal
+            pos[1] += note_speed
+            pygame.draw.circle(screen, NOTE_COLOR, pos, 20)
+            if pos[1] > reference_y + 20:
+                note_positions.remove(pos)
+                miss_count += 1
+                if game_mode == 1 and not game_over:  # Spawn a new note immediately after a miss in Random Notes mode
+                    spawn_random_note()
+
+        # Draw reference points as white circles
+        for x in reference_points.values():
+            pygame.draw.circle(screen, WHITE, (x, reference_y), 20)
+
+        # Display miss counter
+        miss_text = font.render(f"Misses: {miss_count}", True, WHITE)
+        screen.blit(miss_text, (screen.get_width() - miss_text.get_width() - 10, 10))
+
+        # Game over message
+        if game_over:
+            lose_text_line1 = font.render("You Lose!", True, WHITE)
+            lose_text_line2 = font.render("Press R to Restart, M for Menu, or X to Exit", True, WHITE)
+
+            # Center each line on the screen
+            screen.blit(lose_text_line1, (screen.get_width() // 2 - lose_text_line1.get_width() // 2, 160))
+            screen.blit(lose_text_line2, (screen.get_width() // 2 - lose_text_line2.get_width() // 2, 200))
+
+        pygame.display.flip()
+    clock.tick(60)
+
+pygame.quit()
